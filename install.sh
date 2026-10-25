@@ -13,7 +13,7 @@
 #                     along, only if its sha256 is exactly the pinned one. Default when the device has no firmware.
 #   --firmware FILE   your own AGDSP image instead (checked: 1 to 6 MiB, an AUDCP header)
 #   --no-firmware     none (the device keeps the one it has; without one the DSP stays down)
-#   --headset ADDR    the Bluetooth headset calls go to (pair it first; README.md, "Bluetooth headset")
+#   --headset ADDR    the Bluetooth headset calls go to (pair it first; README.md)
 #   --host USER@IP    default root@192.168.77.1 (OpenWrt) - use ubuntu@... for Ubuntu (it uses sudo)
 #   --password PW     for sshpass and sudo (default: ubuntu); without sshpass, ssh asks
 #
