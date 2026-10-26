@@ -1,34 +1,36 @@
 #!/bin/sh
-# hooks/link SYSROOT: make one system use the audio extra ($DISK/extra/audio). mu300-extra runs it after an install
-# for every installed system and at every boot for the running one; mu300-update runs it for the new systems before
-# the reboot, and after a kernel switch. SYSROOT "" is the running system, else the root of another one
-# ($DISK/ubuntu, ...).
+# hooks/link SYSROOT: make one system use the extra mu300-audio ($DISK/extra/mu300-audio). mu300-extra runs it after an
+# install for every installed system and at every boot for the running one. SYSROOT "" is the running system, else
+# the root of another one ($DISK/ubuntu, ...).
 #   SYSROOT/opt/mu300/bin/{mu300-audio-dsp,mu300-voice,pcmhost,ctlset,mu300-hfp} -> the extra's bin/
 #   the services: Ubuntu (systemd) SYSROOT/etc/systemd/system/mu300-audio.service and mu300-voice.service;
 #   OpenWrt (SYSROOT/etc/openwrt_release) SYSROOT/etc/init.d/mu300-audio and mu300-voice. Enabled (multi-user.target.wants,
 #   /etc/rc.d) when the system is linked the first time: mu300-audio always; mu300-voice, the call follower, only when
 #   the system had no mu300-voice service of its own - one it had keeps whether it was enabled (something else may
 #   follow the calls there). Later links leave the enable links as they are (yours to change).
+#   mu300-audio-reserve (sysinit.target.wants; OpenWrt S10): the DSP's memory taken early at every boot, always enabled.
+#   Ubuntu: alsa-restore.service, alsa-state.service and udev's 90-alsa-restore.rules masked (/dev/null) where the
+#   system has nothing there; SYSROOT/etc/mu300/audio-masks lists those, for hooks/unlink.
 #   SYSROOT/etc/modprobe.d/mu300-audio.conf (modprobe never loads the stack: mu300-audio-dsp does, with parameters)
 #   SYSROOT/etc/mu300/voice.conf.example
 #   SYSROOT/lib/firmware/agdsp.bin, when the system has none and the extra fetched the firmware
-#   ($DISK/extra/.audio-firmware/agdsp.bin, checked against its pinned sha256 when it was fetched): with
+#   ($DISK/extra/.mu300-audio-firmware/agdsp.bin, checked against its pinned sha256 when it was put there): with
 #   SYSROOT/etc/mu300/agdsp.sha256 as mu300-audio-dsp install writes it, and SYSROOT/etc/mu300/agdsp.extra, which says
 #   the extra put it there (hooks/unlink takes only such a copy away again). A firmware of the system's own is never
 #   touched.
 # What a system has there itself (the audio stack of a release up to v2026.10.19.1, or what mu300-audio's old
 # installer put there) is moved aside to NAME.builtin, never deleted; hooks/unlink puts it back. Running it again
-# changes nothing. On the running system (SYSROOT ""), when something changed, systemd is reloaded, the sound card and
-# the DSP are started when they are not up yet, and the call follower is (re)started. Run as
-# MU300_DISK=DISK MU300_EXTRA_DIR=DISK/extra/audio sh hooks/link SYSROOT (MU300_AUDIO_LIVE=1|0: those service calls or
+# changes nothing. On the running system (SYSROOT ""), the DSP's memory is reserved when it is not yet; when something
+# changed, systemd is reloaded, the sound card and the DSP are started when they are not up yet, and the call follower
+# is (re)started. Run as MU300_DISK=DISK MU300_EXTRA_DIR=DISK/extra/mu300-audio sh hooks/link SYSROOT (MU300_AUDIO_LIVE=1|0: those service calls or
 # not, by default for SYSROOT "" only - tests/).
 set -eu
 R=${1?usage: hooks/link SYSROOT   (SYSROOT "" = the running system)}
 R=${R%/}
 HERE=$(cd "$(dirname "$0")/.." && pwd)
 DISK=${MU300_DISK:-/mnt/mu300-disk}
-EXTRA=${MU300_EXTRA_DIR:-$DISK/extra/audio}
-FWC=${MU300_AUDIO_FW_CACHE:-$DISK/extra/.audio-firmware/agdsp.bin}
+EXTRA=${MU300_EXTRA_DIR:-$DISK/extra/mu300-audio}
+FWC=${MU300_AUDIO_FW_CACHE:-$DISK/extra/.mu300-audio-firmware/agdsp.bin}
 LIVE=${MU300_AUDIO_LIVE:-}; [ -n "$LIVE" ] || { [ -n "$R" ] && LIVE=0 || LIVE=1; }
 CMDS="pcmhost ctlset mu300-hfp mu300-voice mu300-audio-dsp"
 
@@ -76,6 +78,8 @@ put "$HERE/etc/modprobe-mu300-audio.conf" "$R/etc/modprobe.d/mu300-audio.conf" 6
 put "$HERE/etc/voice.conf.example" "$R/etc/mu300/voice.conf.example" 644
 if [ -e "$R/etc/openwrt_release" ]; then
     mkdir -p "$R/etc/init.d" "$R/etc/rc.d"
+    put "$HERE/service/procd/mu300-audio-reserve" "$R/etc/init.d/mu300-audio-reserve" 755
+    ls "$R"/etc/rc.d/S*mu300-audio-reserve >/dev/null 2>&1 || enable "$R/etc/rc.d/S10mu300-audio-reserve" ../init.d/mu300-audio-reserve
     for s in mu300-audio mu300-voice; do
         put "$HERE/service/procd/$s" "$R/etc/init.d/$s" 755
         # what /etc/init.d/NAME enable makes: S<START>name -> ../init.d/name
@@ -86,6 +90,14 @@ if [ -e "$R/etc/openwrt_release" ]; then
     done
 else
     mkdir -p "$R/etc/systemd/system"
+    put "$HERE/service/systemd/mu300-audio-reserve.service" "$R/etc/systemd/system/mu300-audio-reserve.service" 644
+    enable "$R/etc/systemd/system/sysinit.target.wants/mu300-audio-reserve.service" /etc/systemd/system/mu300-audio-reserve.service
+    # the card's state is mu300-audio's: alsa-utils' restore at boot runs too early for it and stalls its start
+    for m in etc/systemd/system/alsa-restore.service etc/systemd/system/alsa-state.service etc/udev/rules.d/90-alsa-restore.rules; do
+        [ -e "$R/$m" ] || [ -L "$R/$m" ] && continue
+        mkdir -p "$R/${m%/*}"; ln -s /dev/null "$R/$m"; changed=1
+        grep -qxF "$m" "$R/etc/mu300/audio-masks" 2>/dev/null || echo "$m" >> "$R/etc/mu300/audio-masks"
+    done
     for s in mu300-audio mu300-voice; do
         put "$HERE/service/systemd/$s.service" "$R/etc/systemd/system/$s.service" 644
         if [ -n "$first" ] && { [ "$s" = mu300-audio ] || [ "$own_voice" = none ]; }; then
@@ -114,6 +126,10 @@ for c in $CMDS; do link "$EXTRA/bin/$c" "$R/opt/mu300/bin/$c"; done
 # that is not up is started even when nothing here changed: the links of a set for another kernel are the same
 # links (a kernel switch whose extra could not be had left mu300-audio failed at boot; installing the extra of the
 # running kernel afterwards changed no link, and the card stayed down until the next boot - F50-B, 7.3)
+# the DSP's memory, before anything else takes it (mu300-audio-reserve does it at boot; this is the first install)
+if [ "$LIVE" = 1 ] && [ ! -d "${MU300_AUDIO_RESERVE_SYS:-/sys/module/audio_reserve}" ]; then
+    "$EXTRA/bin/mu300-audio-dsp" reserve || true
+fi
 CARDS=${MU300_ASOUND_CARDS:-/proc/asound/cards}
 card_up=; grep -q sprdphone "$CARDS" 2>/dev/null && card_up=1
 if [ "$LIVE" = 1 ] && { [ -n "$changed" ] || [ -z "$card_up" ]; }; then

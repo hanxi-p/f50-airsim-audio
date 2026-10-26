@@ -1,0 +1,10 @@
+#!/bin/sh /etc/rc.common
+# The audio DSP's memory, taken from the kernel before anything else uses it. Put here by mu300-audio's hooks/link.
+START=10
+
+boot() {
+	[ -x /opt/mu300/bin/mu300-audio-dsp ] || return 0
+	/opt/mu300/bin/mu300-audio-dsp reserve > /tmp/mu300-audio-reserve.log 2>&1
+}
+
+start() { :; }

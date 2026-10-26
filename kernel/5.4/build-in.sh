@@ -64,6 +64,14 @@ for pass in 1 2 3; do
     echo "==> pass $pass"
     for d in $DIRS; do build "$d"; done
 done
-for ko in $(find "$A" -name '*.ko'); do
+# the loopback and dummy cards the kernel leaves out (sound/Kbuild), and audio_reserve (kernel/common)
+for d in sound audio_reserve; do
+    rm -rf "/src/ext-$d"
+    if [ $d = sound ]; then cp -r /repo/kernel/5.4/sound /src/ext-sound; cp -r /kit/ext/sound/. /src/ext-sound/
+    else cp -r /repo/kernel/common/audio_reserve /src/ext-audio_reserve; fi
+    make -C "$B" ARCH=arm64 LLVM=1 LLVM_IAS=1 CC=clang LD=ld.lld -j"$(nproc)" M="/src/ext-$d" modules >> /out/build.log 2>&1 ||
+        { tail -40 /out/build.log; exit 1; }
+done
+for ko in $(find "$A" /src/ext-sound /src/ext-audio_reserve -name '*.ko'); do
     llvm-strip --strip-debug -o "/out/${ko##*/}" "$ko"
 done

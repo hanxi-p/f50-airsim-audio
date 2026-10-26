@@ -1,0 +1,5 @@
+# The kernel's loopback and dummy cards, from the kit's copy of their sources (ext/sound/drivers/, copied next to
+# this file by build-in.sh): the kernel's configuration leaves them out. ASoC is built into this kernel.
+snd-aloop-y := drivers/aloop.o
+snd-dummy-y := drivers/dummy.o
+obj-m += snd-aloop.o snd-dummy.o

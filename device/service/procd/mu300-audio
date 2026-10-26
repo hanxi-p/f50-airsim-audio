@@ -2,8 +2,8 @@
 # The Unisoc sound card and its DSP: the audio extra's drivers, the DMA engine they need, a bind to finish the card,
 # and the firmware write that brings the audio DSP up. "start" is safe in this order and only in this order - it
 # checks the card is registered first, because writing the reset registers with the AGDSP power domain down reboots
-# the device (see /opt/mu300/bin/mu300-audio-dsp and mu300-linux FINDINGS 24). Put here by the audio extra's
-# hooks/link (mu300-extra install audio).
+# the device (see /opt/mu300/bin/mu300-audio-dsp). Put here by mu300-audio's
+# hooks/link.
 START=14
 USE_PROCD=1
 export PATH="$PATH:/opt/mu300/busybox-bin"

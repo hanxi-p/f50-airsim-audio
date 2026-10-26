@@ -1,6 +1,7 @@
-"""tools/make-extra.sh: the release files mu300-extra installs - one tarball per kernel of kernel/kits/kits.lock, in the
-layout mu300-update's extra_unpack takes from a module (plain names, at most four levels, files and directories only,
-./VERSION, ./requires, ./kernel, ./manifest, the hooks), the same bytes for the same inputs, and no firmware."""
+"""tools/make-extra.sh: the release files - mu300-audio.tar.gz with the drivers of every kernel of kernel/kits/kits.lock,
+in the layout mu300-update's extra_unpack takes from an extra of one's own (plain names, at most four levels, files and
+directories only, ./VERSION, ./requires, ./name, ./manifest, the hooks), the same bytes for the same inputs, and no
+firmware."""
 import hashlib
 import io
 import os
@@ -30,6 +31,9 @@ def primaries():
 
 
 def tag_key(tag):
+    """a mu300-linux release tag (vYYYY.MM.DD[.N]) in order; a build of main (main-<commit>) after every release"""
+    if tag.startswith('main-'):
+        return (9999,)
     return tuple(int(x) for x in tag[1:].split('.'))
 
 
@@ -46,54 +50,56 @@ class Release(unittest.TestCase):
     def tearDownClass(cls):
         subprocess.run(['rm', '-rf', str(cls.tmp)])
 
-    def test_one_tarball_per_kernel_of_the_lock(self):
-        keys = [k[0] for k in primaries()]
-        self.assertEqual(keys, ['5.4', '6.18', '7.2', '7.3'])
+    def test_one_tarball_for_every_kernel_of_the_lock(self):
+        self.assertEqual([k[0] for k in primaries()], ['5.4', '6.18', '7.2', '7.3'])
         names = sorted(p.name for p in self.out.iterdir())
-        self.assertEqual(names, sorted([f'mu300-audio-{k}.tar.gz' for k in keys] + ['SHA256SUMS', 'VERSIONS']))
+        self.assertEqual(names, ['SHA256SUMS', 'VERSIONS', 'mu300-audio.tar.gz'])
         sums = dict(reversed(l.split('  ')) for l in (self.out / 'SHA256SUMS').read_text().splitlines())
         for n, h in sums.items():
             self.assertEqual(hashlib.sha256((self.out / n).read_bytes()).hexdigest(), h)
 
     def test_the_layout_extra_unpack_takes(self):
-        oldest = min((k[4] for k in kits()), key=tag_key)
-        for key, krel, config, _, tag in primaries():
-            with tarfile.open(self.out / f'mu300-audio-{key}.tar.gz') as t:
-                members = t.getmembers()
-                for m in members:
-                    self.assertTrue(m.isfile() or m.isdir(), m.name)
-                    self.assertRegex(m.name.rstrip('/'), ENTRY)
-                    self.assertEqual((m.uid, m.gid), (0, 0))
-                    if m.isfile():
-                        self.assertEqual(m.mode, 0o755 if m.name.startswith(('./bin/', './hooks/', './service/procd/')) else 0o644, m.name)
-                files = {m.name: t.extractfile(m).read() for m in members if m.isfile()}
-            self.assertEqual(files['./VERSION'], b'v1.2.3\n')
-            self.assertEqual(files['./release'], b'v1.2.3\n')
-            self.assertEqual(files['./name'], b'audio\n')
-            self.assertEqual(files['./kernel'], f'{key}\n'.encode())
-            self.assertEqual(files['./requires'], f'mu300-linux {oldest}\n'.encode())
-            self.assertIn(f'./modules/{krel}/KERNEL', files)
-            self.assertIn(f'CONFIG={config}\n'.encode(), files[f'./modules/{krel}/KERNEL'])
-            # the current set, and beside it only the earlier builds kits.lock names (of this release or an earlier one)
-            # the earlier builds of this kernel beside it, each under its CONFIG's first 12 digits
-            sets = {n.split('/')[2] for n in files if n.startswith('./modules/')}
-            earlier = [k for k in kits() if k[0] == key][1:]
-            self.assertEqual(sets, {krel} | {f'{k[1]}+{k[2][:12]}' for k in earlier})
-            for k in earlier:
+        with tarfile.open(self.out / 'mu300-audio.tar.gz') as t:
+            members = t.getmembers()
+            for m in members:
+                self.assertTrue(m.isfile() or m.isdir(), m.name)
+                self.assertRegex(m.name.rstrip('/'), ENTRY)
+                self.assertEqual((m.uid, m.gid), (0, 0))
+                if m.isfile():
+                    self.assertEqual(m.mode, 0o755 if m.name.startswith(('./bin/', './hooks/', './service/procd/')) else 0o644, m.name)
+            files = {m.name: t.extractfile(m).read() for m in members if m.isfile()}
+        self.assertEqual(files['./VERSION'], b'v1.2.3\n')
+        self.assertEqual(files['./release'], b'v1.2.3\n')
+        # not "audio": mu300-extra takes that name for retiring the old extra
+        self.assertEqual(files['./name'], b'mu300-audio\n')
+        self.assertNotIn('./kernel', files)
+        need = (TOP / 'kernel' / 'kits' / 'requires').read_text().split()[0]
+        self.assertEqual(files['./requires'], f'mu300-linux {need}\n'.encode())
+        sets = {n.split('/')[2] for n in files if n.startswith('./modules/')}
+        want = set()
+        for key in {k[0] for k in kits()}:
+            lines = [k for k in kits() if k[0] == key]
+            want |= {lines[0][1]} | {f'{k[1]}+{k[2][:12]}' for k in lines[1:]}
+            self.assertIn(f'CONFIG={lines[0][2]}\n'.encode(), files[f'./modules/{lines[0][1]}/KERNEL'])
+            for k in lines[1:]:
                 self.assertIn(f'CONFIG={k[2]}\nTAG={k[4]}\n'.encode(), files[f'./modules/{k[1]}+{k[2][:12]}/KERNEL'])
-            for b in ('mu300-audio-dsp', 'mu300-voice', 'pcmhost', 'ctlset', 'mu300-hfp'):
-                self.assertIn(f'./bin/{b}', files)
-            for h in ('link', 'unlink'):
-                self.assertEqual(files[f'./hooks/{h}'], (TOP / 'hooks' / h).read_bytes())
-            # the manifest lists every other file with its hash
-            man = dict(reversed(l.split('  ')) for l in files['./manifest'].decode().splitlines())
-            self.assertEqual(set(man), set(files) - {'./manifest'})
-            for n, h in man.items():
-                self.assertEqual(hashlib.sha256(files[n]).hexdigest(), h, n)
-            # no firmware: fetched on the device, never part of a release
-            for n, data in files.items():
-                self.assertNotRegex(n.lower(), r'agdsp\.(bin|img)|firmware')
-                self.assertLess(len(data), 1 << 20, n)
+        self.assertEqual(sets, want)
+        for b in ('mu300-audio-dsp', 'mu300-voice', 'pcmhost', 'ctlset', 'mu300-hfp'):
+            self.assertIn(f'./bin/{b}', files)
+        for s in ('mu300-audio', 'mu300-voice', 'mu300-audio-reserve'):
+            self.assertIn(f'./service/systemd/{s}.service', files)
+            self.assertIn(f'./service/procd/{s}', files)
+        for h in ('link', 'unlink'):
+            self.assertEqual(files[f'./hooks/{h}'], (TOP / 'hooks' / h).read_bytes())
+        # the manifest lists every other file with its hash
+        man = dict(reversed(l.split('  ')) for l in files['./manifest'].decode().splitlines())
+        self.assertEqual(set(man), set(files) - {'./manifest'})
+        for n, h in man.items():
+            self.assertEqual(hashlib.sha256(files[n]).hexdigest(), h, n)
+        # no firmware, ever
+        for n, data in files.items():
+            self.assertNotRegex(n.lower(), r'agdsp\.(bin|img)|firmware')
+            self.assertLess(len(data), 1 << 20, n)
 
     def test_the_same_inputs_make_the_same_bytes(self):
         for f in self.out.iterdir():
@@ -101,8 +107,10 @@ class Release(unittest.TestCase):
 
     def test_versions(self):
         lines = (self.out / 'VERSIONS').read_text().splitlines()
-        self.assertEqual([l.split('\t')[0] for l in lines], ['audio'] * len(primaries()))
-        self.assertEqual([l.split('\t')[3] for l in lines], [k[1] for k in primaries()])
+        self.assertEqual(len(lines), 1)
+        f = lines[0].split('\t')
+        self.assertEqual((f[0], f[1], f[4]), ('mu300-audio', 'v1.2.3', 'mu300-audio.tar.gz'))
+        self.assertEqual(f[3].split(), sorted({k[1] for k in kits()}))
 
 
 class Lock(unittest.TestCase):
@@ -110,7 +118,7 @@ class Lock(unittest.TestCase):
         for key, krel, config, kit, tag in kits():
             self.assertRegex(config, r'^[0-9a-f]{64}$')
             self.assertRegex(kit, r'^[0-9a-f]{64}$')
-            self.assertRegex(tag, r'^v\d{4}\.\d{2}\.\d{2}(\.\d+)?$')
+            self.assertRegex(tag, r'^(v\d{4}\.\d{2}\.\d{2}(\.\d+)?|main-[0-9a-f]{8,40})$')
             self.assertTrue(krel.startswith(key + '.'), krel)
 
     def test_one_set_per_build(self):
