@@ -39,17 +39,25 @@ done
 drop "$R/etc/modprobe.d/mu300-audio.conf" || true
 drop "$R/etc/mu300/voice.conf.example" || true
 if [ -e "$R/etc/openwrt_release" ]; then
-    for s in mu300-audio mu300-voice; do
+    for s in mu300-audio-reserve mu300-audio mu300-voice; do
         if ! drop "$R/etc/init.d/$s"; then
             for l in "$R"/etc/rc.d/[SK]*"$s"; do [ ! -L "$l" ] || rm -f "$l"; done
         fi
     done
 else
-    for s in mu300-audio mu300-voice; do
+    for s in mu300-audio-reserve mu300-audio mu300-voice; do
         if ! drop "$R/etc/systemd/system/$s.service"; then
-            rm -f "$R/etc/systemd/system/multi-user.target.wants/$s.service"
+            rm -f "$R/etc/systemd/system/multi-user.target.wants/$s.service" "$R/etc/systemd/system/sysinit.target.wants/$s.service"
         fi
     done
+    # the masks hooks/link made (audio-masks), while they are still its /dev/null links
+    if [ -f "$R/etc/mu300/audio-masks" ]; then
+        while read -r m; do
+            case $m in etc/*) ;; *) continue ;; esac
+            [ "$(readlink "$R/$m" 2>/dev/null)" != /dev/null ] || rm -f "$R/$m"
+        done < "$R/etc/mu300/audio-masks"
+        rm -f "$R/etc/mu300/audio-masks"
+    fi
     if [ "$LIVE" = 1 ] && command -v systemctl >/dev/null 2>&1; then systemctl daemon-reload >/dev/null 2>&1 || true; fi
 fi
 

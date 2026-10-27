@@ -13,9 +13,18 @@ cp /kit/ext/sprd_modem/Module.symvers "$mb/sprd_modem/Module.symvers"
 cp -r /kit/ext/wcn_bsp/kinclude "$mb/wcn_bsp/kinclude"
 # the vendor AGCP DMA driver compiles the kernel's own virt-dma in (sprd_audio/Kbuild)
 cp /kit/ext/dma/virt-dma.c /kit/ext/dma/virt-dma.h /kit/ext/dma/dmaengine.h "$mb/sprd_audio/dma/"
-make -C "$B" ARCH=arm64 M="$mb/sprd_audio" KBUILD_EXTRA_SYMBOLS="$mb/sprd_modem/Module.symvers" -j"$(nproc)" modules \
-    > /out/build.log 2>&1 || { tail -40 /out/build.log; exit 1; }
-for ko in $(find "$mb/sprd_audio" -name '*.ko'); do
+# the sound core the kernel leaves out (sound/Kbuild), and audio_reserve (kernel/common), before the stack that uses them
+rm -rf "$mb/sound" "$mb/audio_reserve"
+cp -r /repo/kernel/mainline/sound "$mb/sound"
+cp -r /kit/ext/sound/. "$mb/sound/"
+cp -r /repo/kernel/common/audio_reserve "$mb/audio_reserve"
+: > /out/build.log
+for d in sound audio_reserve; do
+    make -C "$B" ARCH=arm64 M="$mb/$d" -j"$(nproc)" modules >> /out/build.log 2>&1 || { tail -40 /out/build.log; exit 1; }
+done
+make -C "$B" ARCH=arm64 M="$mb/sprd_audio" KBUILD_EXTRA_SYMBOLS="$mb/sprd_modem/Module.symvers $mb/sound/Module.symvers" \
+    -j"$(nproc)" modules >> /out/build.log 2>&1 || { tail -40 /out/build.log; exit 1; }
+for ko in $(find "$mb/sprd_audio" "$mb/sound" "$mb/audio_reserve" -name '*.ko'); do
     # as the release strips its out-of-tree modules: the DWARF goes, the .BTF stays
     strip --strip-debug -o "/out/${ko##*/}" "$ko"
 done

@@ -1,4 +1,4 @@
-"""hooks/link and hooks/unlink: the audio extra into a system and out of it again, for Ubuntu (systemd) and OpenWrt
+"""hooks/link and hooks/unlink: the extra mu300-audio into a system and out of it again, for Ubuntu (systemd) and OpenWrt
 (procd), under every shell they run with. What a system had there itself (a release up to mu300-linux v2026.10.19.1
 carried the stack, mu300-audio's old installer put its own tools there) moves aside and comes back; the firmware the
 extra fetched goes into a system without one and out again only when it is still that copy."""
@@ -13,6 +13,8 @@ from pathlib import Path
 from helpers import TOP, ShellTest
 
 CMDS = ('mu300-audio-dsp', 'mu300-voice', 'pcmhost', 'ctlset', 'mu300-hfp')
+MASKS = ('etc/systemd/system/alsa-restore.service', 'etc/systemd/system/alsa-state.service',
+         'etc/udev/rules.d/90-alsa-restore.rules')
 
 
 class Hooks(ShellTest):
@@ -22,10 +24,10 @@ class Hooks(ShellTest):
         out = self.tmp / 'rel'
         subprocess.run(['sh', str(TOP / 'tools' / 'make-extra.sh'), str(out)], check=True, capture_output=True,
                        env=dict(os.environ, MU300_AUDIO_FAKE='1'))
-        self.extra = self.disk / 'extra' / 'audio'
+        self.extra = self.disk / 'extra' / 'mu300-audio'
         self.extra.mkdir(parents=True)
-        subprocess.run(['tar', '-xzf', str(out / 'mu300-audio-6.18.tar.gz'), '-C', str(self.extra)], check=True)
-        self.fw = self.disk / 'extra' / '.audio-firmware' / 'agdsp.bin'
+        subprocess.run(['tar', '-xzf', str(out / 'mu300-audio.tar.gz'), '-C', str(self.extra)], check=True)
+        self.fw = self.disk / 'extra' / '.mu300-audio-firmware' / 'agdsp.bin'
 
     def system(self, kind, old=False):
         r = self.tmp / kind
@@ -38,11 +40,13 @@ class Hooks(ShellTest):
             (r / 'opt/mu300/bin').mkdir(parents=True)
             for c in ('mu300-audio-dsp', 'mu300-voice'):
                 (r / 'opt/mu300/bin' / c).write_text('#!/bin/sh\necho old\n')
+            if kind != 'openwrt':
+                (r / 'etc/systemd/system').mkdir(parents=True)
+                os.symlink('/dev/null', r / MASKS[1])
             if kind == 'openwrt':
                 (r / 'etc/init.d').mkdir(parents=True)
                 (r / 'etc/init.d/mu300-audio').write_text('old init\n')
             else:
-                (r / 'etc/systemd/system').mkdir(parents=True)
                 (r / 'etc/systemd/system/mu300-audio.service').write_text('old unit\n')
                 (r / 'etc/modprobe.d').mkdir(parents=True)
                 (r / 'etc/modprobe.d/mu300-audio.conf').write_text('old conf\n')
@@ -63,7 +67,7 @@ class Hooks(ShellTest):
         for shell in self.each_shell():
             r = self.system('ubuntu')
             env = dict(MU300_DISK=self.disk, MU300_EXTRA_DIR=self.extra, MU300_AUDIO_LIVE='1', MU300_ASOUND_CARDS=cards,
-                       PATH=f'{bin_}:{os.environ["PATH"]}')
+                       MU300_AUDIO_RESERVE_SYS=self.tmp, PATH=f'{bin_}:{os.environ["PATH"]}')
             self.assertEqual(self.script(shell, self.extra / 'hooks' / 'link', r, **env).returncode, 0)
             # linked already, the card up: nothing is started
             log.unlink(missing_ok=True)
@@ -92,6 +96,13 @@ class Hooks(ShellTest):
             self.assertEqual((r / 'etc/modprobe.d/mu300-audio.conf').read_text(),
                              (TOP / 'device/etc/modprobe-mu300-audio.conf').read_text())
             self.assertTrue((r / 'etc/mu300/voice.conf.example').is_file())
+            # the DSP's memory, early at every boot
+            self.assertEqual(os.readlink(r / 'etc/systemd/system/sysinit.target.wants/mu300-audio-reserve.service'),
+                             '/etc/systemd/system/mu300-audio-reserve.service')
+            # alsa-utils' restore masked, and noted for unlink; one the system masked itself is not noted
+            for m in MASKS:
+                self.assertEqual(os.readlink(r / m), '/dev/null', m)
+            self.assertEqual((r / 'etc/mu300/audio-masks').read_text().split(), [m for m in MASKS if m != MASKS[1]])
             # again: nothing changes, nothing more is moved aside
             before = sorted(str(p.relative_to(r)) for p in r.rglob('*'))
             p = self.hook(shell, 'link', r)
@@ -107,6 +118,12 @@ class Hooks(ShellTest):
             self.assertFalse(os.path.lexists(r / 'etc/systemd/system/mu300-voice.service'))
             self.assertFalse(os.path.lexists(r / 'etc/systemd/system/multi-user.target.wants/mu300-voice.service'))
             self.assertFalse(any(p.name.endswith('.builtin') for p in r.rglob('*')))
+            self.assertFalse(os.path.lexists(r / 'etc/systemd/system/mu300-audio-reserve.service'))
+            self.assertFalse(os.path.lexists(r / 'etc/systemd/system/sysinit.target.wants/mu300-audio-reserve.service'))
+            self.assertFalse(os.path.lexists(r / MASKS[0]))
+            self.assertFalse(os.path.lexists(r / MASKS[2]))
+            self.assertEqual(os.readlink(r / MASKS[1]), '/dev/null')
+            self.assertFalse((r / 'etc/mu300/audio-masks').exists())
             # and again: a system that is not linked is left alone
             p = self.hook(shell, 'unlink', r)
             self.assertEqual(p.returncode, 0, p.stderr)
@@ -116,6 +133,7 @@ class Hooks(ShellTest):
             r = self.system('openwrt')
             p = self.hook(shell, 'link', r)
             self.assertEqual(p.returncode, 0, p.stderr)
+            self.assertEqual(os.readlink(r / 'etc/rc.d/S10mu300-audio-reserve'), '../init.d/mu300-audio-reserve')
             self.assertEqual(os.readlink(r / 'etc/rc.d/S14mu300-audio'), '../init.d/mu300-audio')
             self.assertEqual(os.readlink(r / 'etc/rc.d/S96mu300-voice'), '../init.d/mu300-voice')
             self.assertTrue(os.access(r / 'etc/init.d/mu300-audio', os.X_OK))
@@ -123,6 +141,8 @@ class Hooks(ShellTest):
             p = self.hook(shell, 'unlink', r)
             self.assertEqual(p.returncode, 0, p.stderr)
             self.assertFalse(os.path.lexists(r / 'etc/rc.d/S14mu300-audio'))
+            self.assertFalse(os.path.lexists(r / 'etc/rc.d/S10mu300-audio-reserve'))
+            self.assertFalse(os.path.lexists(r / 'etc/init.d/mu300-audio-reserve'))
             self.assertFalse(os.path.lexists(r / 'etc/init.d/mu300-voice'))
             self.assertFalse(os.path.lexists(r / 'opt/mu300/bin/mu300-audio-dsp'))
 

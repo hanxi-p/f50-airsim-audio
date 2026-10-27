@@ -13,7 +13,8 @@
 # release's own modules carry is checked against this tree's Module.symvers, and one that differs stops the kit: that
 # is what says this tree builds modules the release's kernel takes.
 # The tree is the one 5.4's own scripts/package/builddeb packs as linux-headers (deploy_kernel_headers), with .config
-# and the headers under drivers/ and sound/ (the vendor's own headers include some of them by relative path).
+# and the headers under drivers/ and sound/ (the vendor's own headers include some of them by relative path), and
+# ext/sound/drivers/: the loopback and dummy cards' sources, which the kernel does not build and the extra does.
 set -euo pipefail
 TAG=$1 REL=${2:-}
 S=/src/zte-u30air
@@ -38,6 +39,8 @@ krel=$(cat "$O/include/config/kernel.release")
 ) | sort -u > "$W/obj.list"
 (cd "$O" && tar -cf - -T "$W/obj.list") | (cd "$D/build" && tar -xf -)
 cp "$O/.config" "$D/build/.config"
+mkdir -p "$D/ext/sound/drivers"
+cp "$S/sound/drivers/aloop.c" "$S/sound/drivers/dummy.c" "$D/ext/sound/drivers/"
 find "$D/build" \( -name '.*.cmd' -o -name '*.o' \) -delete
 
 if [ -n "$REL" ]; then

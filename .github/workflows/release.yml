@@ -1,13 +1,12 @@
 name: Release
 
-# Builds the audio extra - for every kernel of kernel/kits/kits.lock its drivers (kernel/build.sh, against that kernel's
-# build kit, checked by hash), the static tools (src/*/build.sh) and tools/make-extra.sh - and publishes the release
-# files under fixed names, so releases/latest/download/NAME always works for mu300-extra: mu300-audio-5.4.tar.gz,
-# mu300-audio-6.18.tar.gz, mu300-audio-7.2.tar.gz, mu300-audio-7.3.tar.gz, VERSIONS and SHA256SUMS. No firmware: mu300-extra fetches that on the
-# device. Actions > Release > Run workflow on main, with the tag (vMAJOR.MINOR.PATCH): the release's commit is the main
+# Builds the extra mu300-audio - for every kernel of kernel/kits/kits.lock its drivers (kernel/build.sh, against that
+# kernel's build kit, checked by hash), the static tools (src/*/build.sh) and tools/make-extra.sh - and publishes the
+# release files under fixed names, so releases/latest/download/NAME always works: mu300-audio.tar.gz, VERSIONS and
+# SHA256SUMS. No firmware. Actions > Release > Run workflow on main, with the tag (vMAJOR.MINOR.PATCH): the release's commit is the main
 # commit the workflow ran on (another ref is refused), and a tag or release that exists already is refused. A tag
 # vMAJOR.MINOR.PATCH pushed by hand (from any branch: to try a build on devices before it is merged) makes a
-# prerelease of the tagged commit, which mu300-extra does not take (releases/latest is the latest full release).
+# prerelease of the tagged commit, which install.sh does not take (releases/latest is the latest full release).
 on:
   push:
     tags: ['v[0-9]+.[0-9]+.[0-9]+']
@@ -17,7 +16,7 @@ on:
         description: 'Release tag, e.g. v1.0.0'
         required: true
       prerelease:
-        description: 'Publish as a prerelease (mu300-extra takes the latest full release)'
+        description: 'Publish as a prerelease (install.sh takes the latest full release)'
         type: boolean
         default: false
 
@@ -68,17 +67,16 @@ jobs:
       - name: Publish
         run: |
           {
-            echo "Call audio for [mu300-linux](https://github.com/dikeckaan/mu300-linux) as the audio extra"
+            echo "Call audio for [mu300-linux](https://github.com/dikeckaan/mu300-linux) as the extra mu300-audio"
             echo
-            echo "Install on the device: \`sudo mu300-extra install audio\` (needs $(tar -xzOf out/release/mu300-audio-6.18.tar.gz ./requires) or newer). It takes the tarball of the kernel the device uses and fetches the DSP firmware, checked against its pinned sha256; \`mu300-update kernel X\` brings the one of X. Offline: see the README."
+            echo "Install: \`./install.sh --host USER@IP\` from a computer, or on the device \`sudo mu300-extra install mu300-audio --from DIR\` with mu300-audio.tar.gz and SHA256SUMS in DIR (needs $(tar -xzOf out/release/mu300-audio.tar.gz ./requires) or newer). One tarball for every kernel:"
             echo
-            echo '| file | kernel | built against |'
+            echo '| kernel | release | built against |'
             echo '|---|---|---|'
-            awk '!/^#/ && NF {printf "| mu300-audio-%s.tar.gz | %s | %sthe %s kernel of mu300-linux %s (config %s..., kit sha256 %s...) |\n", $1, $2, (seen[$1]++ ? "also, for the devices not updated yet: " : ""), $1, $5, substr($3, 1, 12), substr($4, 1, 12)}' kernel/kits/kits.lock
-            echo "| VERSIONS | each tarball's version, size and kernel release | |"
+            awk '!/^#/ && NF {printf "| %s | %s | the %s kernel of mu300-linux %s (config %s..., kit sha256 %s...) |\n", $1, $2, $1, $5, substr($3, 1, 12), substr($4, 1, 12)}' kernel/kits/kits.lock
             echo
             echo 'Licences: the drivers (modules/) are GPL-2.0, built from Unisoc'"'"'s audio drivers as published by realme (5.4) and the mainline port of them (kernel/); the scripts and tools are MIT. No firmware: the DSP image is not part of any release here.'
           } > notes.md
           flag=; [ "$PRERELEASE" = true ] && flag=--prerelease
           gh release create "$TAG" --target "$GITHUB_SHA" --title "$TAG" --notes-file notes.md $flag \
-            out/release/mu300-audio-*.tar.gz out/release/VERSIONS out/release/SHA256SUMS
+            out/release/mu300-audio.tar.gz out/release/VERSIONS out/release/SHA256SUMS

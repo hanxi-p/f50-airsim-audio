@@ -59,7 +59,7 @@ class Drivers(unittest.TestCase):
             r = self.run_dsp(shell, 'drivers')
             self.assertEqual(r.returncode, 1)
             self.assertIn('built for another build of it (mu300-linux v2026.10.19.1)', r.stderr)
-            self.assertIn('mu300-extra install audio', r.stderr)
+            self.assertIn('Update the extra', r.stderr)
             # asked for anyway
             r = self.run_dsp(shell, 'drivers', MU300_AUDIO_ANY_BUILD='1')
             self.assertEqual(r.returncode, 0)
@@ -102,7 +102,7 @@ class Drivers(unittest.TestCase):
         for shell in shells():
             r = self.run_dsp(shell, 'drivers')
             self.assertEqual(r.returncode, 1)
-            self.assertIn('no audio drivers for 6.18.57 (mu300-extra install audio)', r.stderr)
+            self.assertIn('no audio drivers for 6.18.57 (install mu300-audio)', r.stderr)
             r = self.run_dsp(shell, 'status')
             self.assertIn('drivers:  none - no audio drivers', r.stdout)
 

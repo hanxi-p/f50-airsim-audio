@@ -62,15 +62,15 @@ grep -qx "KREL=$KREL" "$W/kit/kit-$KEY/KIT" && grep -qx "CONFIG=$CONFIG" "$W/kit
 docker build -q -t "$IMG" "$DF" >/dev/null
 docker run --rm -e KB="$KB" -v "$W/kit/kit-$KEY/build:$KB" -v "$W/kit/kit-$KEY:/kit:ro" -v "$TOP:/repo:ro" -v "$W/out:/out" "$IMG" bash "/repo/kernel/${DF##*/}/build-in.sh"
 
-# what each kernel's set must hold: the 23 of 5.4, the 20 of mainline (no saudio, sprd_dai, vaudio, ucp1301 - nothing
-# on these boards uses them - and the vendor AGCP DMA driver of its own)
-COMMON="audio_mem agdsp_access audio_sipc sprd_audcp_boot sprd_audcp_dvfs audio-dsp-dump audio-pipe sprd_apipe
+# what each kernel's set must hold: the 26 of 5.4, the 25 of mainline (no saudio, sprd_dai, vaudio, ucp1301 - nothing
+# on these boards uses them - and the vendor AGCP DMA driver, the ASoC core and the compress layer of its own)
+COMMON="audio_reserve audio_mem agdsp_access audio_sipc sprd_audcp_boot sprd_audcp_dvfs audio-dsp-dump audio-pipe sprd_apipe
 mcdt_hw_r2p0 sprd-dmaengine-pcm sprd-platform-pcm-routing sprd-compr-2stage-dma snd-soc-sprd-vbc-v4 snd-soc-sprd-vbc-fe
 snd-soc-sprd-codec-ump9620-power snd-soc-sprd-codec-ump9620-power-dev snd-soc-sprd-codec-ump9620 snd-soc-sprd-dummy-codec
-snd-soc-sprd-card"
+snd-soc-sprd-card snd-aloop snd-dummy"
 case $KEY in
     5.4) MODULES="$COMMON saudio snd-soc-sprd-dai snd-soc-sprd-vaudio snd-soc-sprd-pa-ucp1301" ;;
-    *) MODULES="$COMMON sprd-dma" ;;
+    *) MODULES="$COMMON sprd-dma snd-soc-core snd-compress" ;;
 esac
 want=$(printf '%s\n' $MODULES | LC_ALL=C sort)
 have=$(cd "$W/out" && ls *.ko | sed 's/\.ko$//' | LC_ALL=C sort)

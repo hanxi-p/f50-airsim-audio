@@ -18,6 +18,8 @@
 #                   byte for byte the release's (passed as RELEASE_SIPC_CORE): that is what says /src is the release's tree
 #   ext/wcn_bsp/    the headers the modem stack's headers include
 #   ext/dma/        the kernel's virt-dma.c, virt-dma.h and dmaengine.h, which the vendor AGCP DMA driver compiles in
+#   ext/sound/      the kernel's ASoC core (soc/), compress layer (core/) and loopback and dummy cards (drivers/), which
+#                   the kernel does not build and the extra does
 #   KIT             what the kit is: KEY, KREL, CONFIG (the sha256 of the .config's settings, the check
 #                   mu300-audio-dsp makes against /proc/config.gz before it loads anything), TAG (the mu300-linux release)
 set -euo pipefail
@@ -26,7 +28,8 @@ K=/src/linux-$KV
 O=/src/out-$KV
 W=/tmp/kit-$KEY
 D=$W/kit-$KEY
-rm -rf "$W"; mkdir -p "$D/build" "$D/ext/dma" "$D/ext/sprd_modem" "$D/ext/wcn_bsp"
+rm -rf "$W"; mkdir -p "$D/build" "$D/ext/dma" "$D/ext/sprd_modem" "$D/ext/wcn_bsp" "$D/ext/sound/soc" "$D/ext/sound/core" \
+    "$D/ext/sound/drivers"
 krel=$(cat "$O/include/config/kernel.release")
 # (a mainline release's tree is linux-7.3, its kernel release 7.3.0)
 [ "$krel" = "$KV" ] || [ "$krel" = "$KV.0" ] || { echo "$O is $krel, not $KV" >&2; exit 1; }
@@ -55,6 +58,9 @@ cp "$mb/sprd_modem/Module.symvers" "$D/ext/sprd_modem/Module.symvers"
 cp -r "$mb/sprd_modem/kinclude" "$D/ext/sprd_modem/kinclude"
 cp -r "$mb/wcn_bsp/kinclude" "$D/ext/wcn_bsp/kinclude"
 cp "$K/drivers/dma/virt-dma.c" "$K/drivers/dma/virt-dma.h" "$K/drivers/dma/dmaengine.h" "$D/ext/dma/"
+cp "$K"/sound/soc/soc-*.c "$D/ext/sound/soc/"
+cp "$K/sound/core/compress_offload.c" "$D/ext/sound/core/"
+cp "$K/sound/drivers/aloop.c" "$K/sound/drivers/dummy.c" "$D/ext/sound/drivers/"
 
 cfg=$(grep -E '^(CONFIG_|# CONFIG_)' "$O/.config" | LC_ALL=C sort | sha256sum | cut -d' ' -f1)
 {

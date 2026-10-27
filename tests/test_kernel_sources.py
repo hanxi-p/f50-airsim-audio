@@ -118,27 +118,38 @@ class ModuleLists(unittest.TestCase):
         own = re.search(r'%s\) MODULES="\$COMMON ([^"]*)"' % re.escape(key), src).group(1).split()
         return set(common + own)
 
+    @staticmethod
+    def kbuild_objs(path):
+        kbuild = path.read_text().replace('\\\n', ' ')
+        return {o[:-2] for l in kbuild.splitlines() if re.match(r'obj-m\s*\+?=', l)
+                for o in l.split('=', 1)[1].split() if o.endswith('.o')}
+
     def test_kernel_build_wants_what_the_kbuild_builds(self):
-        kbuild = (MOD / 'Kbuild').read_text().replace('\\\n', ' ')
-        built = {o[:-2] for l in kbuild.splitlines() if re.match(r'obj-m\s*\+?=', l)
-                 for o in l.split('=', 1)[1].split() if o.endswith('.o')}
+        k = TOP / 'kernel'
+        reserve = self.kbuild_objs(k / 'common' / 'audio_reserve' / 'Kbuild')
+        self.assertEqual(reserve, {'audio_reserve'})
+        built = self.kbuild_objs(MOD / 'Kbuild') | self.kbuild_objs(k / 'mainline' / 'sound' / 'Kbuild') | reserve
         src = BUILD.read_text()
         common = set(re.search(r'COMMON="([^"]*)"', src).group(1).split())
         mainline = common | set(re.search(r'\*\) MODULES="\$COMMON ([^"]*)"', src).group(1).split())
         self.assertEqual(built, mainline)
-        self.assertEqual(len(mainline), 20)
+        self.assertEqual(len(mainline), 25)
         five = common | set(re.search(r'5\.4\) MODULES="\$COMMON ([^"]*)"', src).group(1).split())
-        self.assertEqual(len(five), 23)
+        self.assertEqual(len(five), 26)
+        self.assertTrue({'snd-aloop', 'snd-dummy'} <= self.kbuild_objs(k / '5.4' / 'sound' / 'Kbuild') <= five)
 
     def test_mu300_audio_dsp_loads_every_one(self):
         src = DSP.read_text()
         listed = set(re.search(r'MODULES="([^"]*)"', src.split('CORE_MODULES=', 1)[1]).group(1).split())
         dma = set(re.search(r'DMA_MODULES="([^"]*)"', src).group(1).split())
+        core = set(re.search(r'CORE_MODULES="([^"]*)"', src).group(1).split())
+        self.assertIn('insmod "$A/audio_reserve.ko"', src)
         src = BUILD.read_text()
         common = set(re.search(r'COMMON="([^"]*)"', src).group(1).split())
         for key in ('5.4', r'\*'):
             own = set(re.search(r'%s\) MODULES="\$COMMON ([^"]*)"' % key, src).group(1).split())
-            self.assertEqual((common | own) - listed - dma, set(), key)
+            # snd-dummy is there for whoever wants a card that is not a real one; nothing here loads it
+            self.assertEqual((common | own) - listed - dma - core - {'audio_reserve', 'snd-dummy'}, set(), key)
 
     def test_the_5_4_build_applies_every_patch(self):
         src = (TOP / 'kernel' / '5.4' / 'build-in.sh').read_text()
@@ -218,3 +229,31 @@ class Bounds54(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class Reserve(unittest.TestCase):
+    SRC = TOP / 'kernel' / 'common' / 'audio_reserve' / 'audio_reserve.c'
+
+    def test_pages_taken_are_never_given_back(self):
+        src = self.SRC.read_text()
+        # no module_exit: a module without one cannot be unloaded, and the DSP may be running in those pages
+        self.assertNotIn('module_exit', src)
+        # only the blocks held during a sweep go back to the allocator, and (5.4) pages of a block alloc_contig_range()
+        # is about to take whole, which only happens while pages are missing - audio_mem waits for none
+        self.assertEqual(src.count('__free_pages('), 1)
+        self.assertIn('list_for_each_entry_safe(p, t, &hold, lru)', src)
+        self.assertEqual(src.count('__free_page('), 1)
+        self.assertIn('if (missing_pages)\n\t\tclaim();', src)
+
+    def test_the_sweep_never_reclaims_or_dips_into_reserves(self):
+        src = self.SRC.read_text()
+        self.assertIn('const gfp_t base = __GFP_NOWARN | __GFP_NORETRY | __GFP_NOMEMALLOC;', src)
+        # and never holds the system below its high watermark plus a margin (F50-B, 5.4: an unbounded sweep took
+        # it to the min watermark and the OOM killer panicked the boot)
+        self.assertIn('while (missing_pages && room(order))', src)
+        self.assertEqual(re.findall(r'alloc_pages\(([^)]*)\)', src), ['gfp, order'])
+
+    def test_taken_pages_are_cleaned_from_the_cache(self):
+        src = self.SRC.read_text()
+        self.assertIn('dma_map_page(dev, pfn_to_page(rg[i].start), 0, len, DMA_BIDIRECTIONAL)', src)
+        self.assertIn('dma_unmap_page(dev, a, len, DMA_BIDIRECTIONAL)', src)

@@ -1,13 +1,11 @@
 #!/bin/sh
-# Install call audio (the audio extra) on an MU300 (ZTE F50 / U30 Air) running mu300-linux, from this computer, over
-# ssh - for a device without internet, or one whose mu300-linux is v2026.10.19.1 (its mu300-extra does not know the
-# audio extra by name yet: it installs it as an extra of your own). On a device with internet and a newer release,
-# `sudo mu300-extra install audio` there does the same by itself.
+# Install call audio (the extra mu300-audio) on an MU300 (ZTE F50 / U30 Air) running mu300-linux, from this computer,
+# over ssh. On the device, `sudo mu300-extra install mu300-audio --from DIR` does the same with the release files.
 #
 #   ./install.sh [--host USER@IP] [--password PW] [--from DIR | --release TAG]
 #                [--download-firmware | --firmware FILE | --no-firmware] [--headset AA:BB:CC:DD:EE:FF]
 #
-#   --from DIR        the release files (mu300-audio-*.tar.gz and SHA256SUMS: a release's, or tools/make-extra.sh's
+#   --from DIR        the release files (mu300-audio.tar.gz and SHA256SUMS: a release's, or tools/make-extra.sh's
 #                     out/release); default: downloaded from this repository's latest release (--release TAG: that one)
 #   --download-firmware  fetch the measured DSP image (github.com/dikeckaan/mu300-audio-firmware) here and send it
 #                     along, only if its sha256 is exactly the pinned one. Default when the device has no firmware.
@@ -17,8 +15,8 @@
 #   --host USER@IP    default root@192.168.77.1 (OpenWrt) - use ubuntu@... for Ubuntu (it uses sudo)
 #   --password PW     for sshpass and sudo (default: ubuntu); without sshpass, ssh asks
 #
-# Every file is checked here first (the tarballs against SHA256SUMS, the firmware), and again on the device. The
-# device installs the tarball of the kernel it uses (mu300-update kernel) and links it into every system.
+# Every file is checked here first (the tarball against SHA256SUMS, the firmware), and again on the device, which
+# installs it and links it into every system.
 set -eu
 umask 077
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -59,19 +57,15 @@ if [ -z "$FROM" ]; then
     FROM=$STAGE/dl; mkdir -p "$FROM"
     echo "downloading the audio extra from $base"
     curl -fsSL --proto '=https' -o "$FROM/SHA256SUMS" "$base/SHA256SUMS" || { echo "download failed" >&2; exit 1; }
-    for f in $(awk '$2 ~ /^mu300-audio-[0-9.]+\.tar\.gz$/ {print $2}' "$FROM/SHA256SUMS"); do
-        curl -fsSL --proto '=https' -o "$FROM/$f" "$base/$f" || { echo "download of $f failed" >&2; exit 1; }
-    done
+    curl -fsSL --proto '=https' -o "$FROM/mu300-audio.tar.gz" "$base/mu300-audio.tar.gz" || { echo "download failed" >&2; exit 1; }
 fi
 [ -f "$FROM/SHA256SUMS" ] || { echo "no SHA256SUMS in $FROM" >&2; exit 1; }
-n=0
-for f in $(awk '$2 ~ /^mu300-audio-[0-9.]+\.tar\.gz$/ {print $2}' "$FROM/SHA256SUMS"); do
-    want=$(awk -v f="$f" '$2 == f {print $1}' "$FROM/SHA256SUMS")
-    [ -f "$FROM/$f" ] && [ "$(sha256 "$FROM/$f")" = "$want" ] || { echo "$FROM/$f does not match SHA256SUMS" >&2; exit 1; }
-    cp "$FROM/$f" "$P/"; n=$((n + 1))
-done
-[ "$n" -gt 0 ] || { echo "SHA256SUMS in $FROM lists no mu300-audio-*.tar.gz" >&2; exit 1; }
-cp "$FROM/SHA256SUMS" "$P/SHA256SUMS"
+want=$(awk '$2 == "mu300-audio.tar.gz" {print $1}' "$FROM/SHA256SUMS")
+[ -n "$want" ] || { echo "SHA256SUMS in $FROM lists no mu300-audio.tar.gz" >&2; exit 1; }
+[ -f "$FROM/mu300-audio.tar.gz" ] && [ "$(sha256 "$FROM/mu300-audio.tar.gz")" = "$want" ] ||
+    { echo "$FROM/mu300-audio.tar.gz does not match SHA256SUMS" >&2; exit 1; }
+cp "$FROM/mu300-audio.tar.gz" "$P/"
+echo "$want  mu300-audio.tar.gz" > "$P/SHA256SUMS"
 
 # --- the firmware, checked here first ---
 case $FWMODE in
@@ -84,7 +78,7 @@ case $FWMODE in
         elif [ "$FWMODE" = download ]; then
             echo "download failed" >&2; exit 1
         else
-            echo "note: the firmware could not be downloaded here; the device keeps its own, or fetches it itself when it is online" >&2
+            echo "note: the firmware could not be downloaded here; the device keeps its own (mu300-audio-dsp install --download there)" >&2
         fi ;;
     own)
         [ -f "$FW" ] || { echo "no file $FW" >&2; exit 1; }

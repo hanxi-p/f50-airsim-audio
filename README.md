@@ -1,21 +1,23 @@
 # mu300-audio
 
 Call audio for the ZTE F50 (MU300) and ZTE U30 Air running [mu300-linux](https://github.com/dikeckaan/mu300-linux),
-installed on the device as its **audio extra**.
+installed on the device as the extra **mu300-audio**.
 
 Supported kernels: the vendor 5.4 and the mainline 6.18, 7.2 and 7.3 that mu300-linux ships.
 
 ## Install
 
-On the device (Ubuntu or OpenWrt, a mu300-linux release after v2026.10.19.1):
+From a computer, over ssh (the latest release, and the DSP firmware checked against its pinned sha256):
 
-    sudo mu300-extra install audio                   # the kernel this device uses
-    sudo mu300-extra install audio --from DIR        # offline: the release's tarball, SHA256SUMS and agdsp.bin
-    mu300-extra status audio
-    sudo mu300-extra remove audio
+    ./install.sh --host ubuntu@192.168.77.1      # or root@... for OpenWrt; ./uninstall.sh to remove
 
-`mu300-update` keeps it in step with the kernel. From a computer: `./install.sh --host root@192.168.77.1`
-(`./uninstall.sh` to remove).
+On the device, with `mu300-audio.tar.gz` and `SHA256SUMS` of a release in DIR:
+
+    sudo mu300-extra install mu300-audio --from DIR
+    sudo mu300-audio-dsp install --download      # the DSP firmware
+    sudo mu300-extra remove mu300-audio
+
+One tarball serves every kernel; a reboot after installing makes sure the DSP's memory is free.
 
 ## Bluetooth headset
 
@@ -28,7 +30,7 @@ Reports go to the [mu300-linux issues](https://github.com/dikeckaan/mu300-linux/
 
     sh kernel/build.sh 6.18                                   # out/modules/6.18/
     for t in pcmhost ctlset hfp; do sh src/$t/build.sh; done  # out/bin/
-    sh tools/make-extra.sh out/release v1.0.0                 # the release files
+    sh tools/make-extra.sh out/release v1.0.0                 # out/release/mu300-audio.tar.gz
     cd tests && python3 -m unittest discover -s .
 
 ## Credits

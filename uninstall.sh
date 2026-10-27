@@ -1,7 +1,7 @@
 #!/bin/sh
-# Take call audio off the device again: mu300-extra remove audio there - the extra out of every system, what it had
-# replaced back (NAME.builtin), and the firmware it had put there (your own stays). Reboot afterwards: most of the
-# drivers cannot be unloaded.
+# Take call audio off the device again: mu300-extra remove mu300-audio there - the extra out of every system, what it
+# had replaced back (NAME.builtin), and the firmware it had put there (your own stays). Reboot afterwards: most of the
+# drivers cannot be unloaded, and the DSP's memory stays taken until then.
 #
 #   ./uninstall.sh [--host USER@IP] [--password PW]
 set -eu
@@ -19,5 +19,5 @@ while [ $# -gt 0 ]; do
 done
 check_host "$HOST" || exit 2
 S=$(mktemp -d); trap 'rm -rf "$S"' EXIT INT TERM
-printf '#!/bin/sh\nexport PATH="$PATH:/opt/mu300/bin:/usr/sbin:/sbin"\nmu300-extra remove audio\n' > "$S/remote-uninstall.sh"
+printf '#!/bin/sh\nexport PATH="$PATH:/opt/mu300/bin:/usr/sbin:/sbin"\nmu300-extra remove mu300-audio && rm -rf /mnt/mu300-disk/extra/.mu300-audio-firmware\n' > "$S/remote-uninstall.sh"
 COPYFILE_DISABLE=1 tar -C "$S" -cf - remote-uninstall.sh | remote_run "$HOST" "$PW" remote-uninstall.sh

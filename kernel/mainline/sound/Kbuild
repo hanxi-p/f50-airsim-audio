@@ -1,0 +1,11 @@
+# The kernel's own ALSA SoC core, compress layer and loopback and dummy cards, from the kit's copy of the kernel's
+# sources (ext/sound/, copied next to this file by build-in.sh): the kernel's configuration leaves them out.
+# snd-soc-core is what CONFIG_SND_SOC=m with SND_SOC_COMPRESS builds; the optional parts stay out.
+ccflags-y += -DCONFIG_SND_SOC_COMPRESS=1
+
+soc-skip := soc-topology.c soc-generic-dmaengine-pcm.c soc-ac97.c soc-acpi.c soc-usb.c %-test.c
+snd-soc-core-y := $(patsubst %.c,soc/%.o,$(filter-out $(soc-skip),$(notdir $(wildcard $(src)/soc/soc-*.c))))
+snd-compress-y := core/compress_offload.o
+snd-aloop-y := drivers/aloop.o
+snd-dummy-y := drivers/dummy.o
+obj-m += snd-soc-core.o snd-compress.o snd-aloop.o snd-dummy.o
